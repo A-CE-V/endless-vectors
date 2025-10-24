@@ -40,7 +40,18 @@ app.post("/convert", upload.single("image"), async (req, res) => {
     // ------------------------------------------------------------
     if (direction === "to-svg") {
       const imgData = bufferToImageData(buffer);
-      const svgString = ImageTracer.imagedataToSVG(imgData, { ltres: 1, qtres: 1, pathomit: 8 });
+
+      const options = {
+        ltres: 2,          // smoother straight lines
+        qtres: 2,          // smoother curves
+        pathomit: 16,      // omit tiny details
+        numberofcolors: 24, // higher = smoother gradients
+        blurradius: 1,     // slight blur before tracing
+        blurdelta: 10,     // how strong the blur is
+        scale: 1           // SVG scaling factor
+      };
+
+      const svgString = ImageTracer.imagedataToSVG(imgData, options);
       res.set("Content-Type", "image/svg+xml");
       return res.send(svgString);
     }
