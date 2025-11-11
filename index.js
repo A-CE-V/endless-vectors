@@ -38,52 +38,90 @@ app.post(
       const requestedFormat = (req.body.format || req.query.format || "png").toLowerCase();
 
       let buffer;
+      let originalName = "unknown";
+      let mimeType = "";
+
       if (req.file) {
         buffer = req.file.buffer;
+        originalName = req.file.originalname;
+        mimeType = req.file.mimetype;
       } else if (req.query.url) {
         const response = await axios.get(req.query.url, { responseType: "arraybuffer" });
         buffer = Buffer.from(response.data, "binary");
+        originalName = req.query.url.split("/").pop();
+        mimeType = "image/png";
       } else {
         return res.status(400).json({ error: "No file or URL provided" });
       }
 
+      if (!buffer || buffer.length === 0) {
+        return res.status(400).json({ error: "Uploaded file is empty" });
+      }
+
+      console.log("🔹 Converting:", originalName, "direction:", direction, "format:", requestedFormat);
+
       if (direction === "to-svg") {
-        const imgData = bufferToImageData(buffer);
+        const supportedRaster = ["image/png", "image/jpeg", "image/webp", "image/avif", "image/gif"];
+        if (!supportedRaster.includes(mimeType)) {
+          return res.status(400).json({
+            error: "Raster to SVG conversion only supports PNG, JPG, WEBP, AVIF",
+            mimeType,
+          });
+        }
 
-        const options = {
-          ltres: 2,
-          qtres: 2,
-          pathomit: 16,
-          numberofcolors: 24,
-          blurradius: 1,
-          blurdelta: 10,
-          scale: 1,
-        };
+        try {
+          const imgData = bufferToImageData(buffer);
 
-        const svgString = ImageTracer.imagedataToSVG(imgData, options);
-        res.set("Content-Type", "image/svg+xml");
-        return res.send(svgString);
+          const options = {
+            ltres: 2,
+            qtres: 2,
+            pathomit: 16,
+            numberofcolors: 24,
+            blurradius: 1,
+            blurdelta: 10,
+            scale: 1,
+          };
+
+          const svgString = ImageTracer.imagedataToSVG(imgData, options);
+          res.set("Content-Type", "image/svg+xml");
+          return res.send(svgString);
+        } catch (err) {
+          console.error("[ERROR] Raster → SVG conversion failed:", err);
+          return res.status(500).json({
+            error: "Raster → SVG conversion failed",
+            details: err.message,
+          });
+        }
       }
 
       // ------------------------------------------------------------
-      // 🖼️ SVG → RASTER (rendering)
+      // SVG → Raster or raster → raster
       // ------------------------------------------------------------
-      const supportedFormats = ["jpeg", "png", "webp", "avif"];
+      const supportedFormats = ["jpeg", "png", "webp", "avif", "gif"];
       let sharpFormat = requestedFormat === "jpg" ? "jpeg" : requestedFormat;
       if (!supportedFormats.includes(sharpFormat)) sharpFormat = "png";
 
-      const outputBuffer = await sharp(buffer, { density: 300 })
-        .toFormat(sharpFormat)
-        .toBuffer();
+      try {
+        const outputBuffer = await sharp(buffer, { density: 300 })
+          .toFormat(sharpFormat)
+          .toBuffer();
 
-      res.set("Content-Type", `image/${sharpFormat}`);
-      res.send(outputBuffer);
+        res.set("Content-Type", `image/${sharpFormat}`);
+        return res.send(outputBuffer);
+      } catch (err) {
+        console.error("[ERROR] Sharp conversion failed:", err);
+        return res.status(500).json({
+          error: "Raster conversion failed",
+          details: err.message,
+        });
+      }
     } catch (err) {
-      console.error("Error converting image:", err);
-      res.status(500).json({ error: "Conversion failed", details: err.message });
+      console.error("[ERROR] Unexpected conversion error:", err);
+      return res.status(500).json({ error: "Conversion failed", details: err.message });
     }
   }
 );
+
 
 /* ======================
    STATUS ENDPOINTS
